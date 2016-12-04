@@ -107,7 +107,6 @@ INCLUDE_DIRECTORIES(
     deps/picohttpparser
     deps/picotest
     deps/yaml/include
-    deps/librdkafka
     deps/yoml)
 
 
