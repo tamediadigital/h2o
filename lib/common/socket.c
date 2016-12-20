@@ -704,7 +704,7 @@ h2o_iovec_t h2o_socket_log_ssl_session_ticket(h2o_socket_t *sock, h2o_mem_pool_t
             s[i * 2 + 0] = h > 10 ? h - 10 + 'A' : h + '0';
             s[i * 2 + 1] = l > 10 ? l - 10 + 'A' : l + '0';
         }
-        return h2o_iovec_init(s, len);
+        return h2o_iovec_init(s, len * 2);
     }
     else
     {
