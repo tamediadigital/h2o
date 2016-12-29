@@ -51,7 +51,7 @@ extern "C" {
 #include "h2o/timeout.h"
 #include "h2o/url.h"
 #include "h2o/version.h"
-#include "librdkafka/rdkafka.h"
+#include "rdkafka.h"
 
 #ifndef H2O_USE_BROTLI
 /* disabled for all but the standalone server, since the encoder is written in C++ */

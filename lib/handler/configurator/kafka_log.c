@@ -22,7 +22,7 @@
 #include <stdlib.h>
 #include "h2o.h"
 #include "h2o/configurator.h"
-#include "librdkafka/rdkafka.h"
+#include "rdkafka.h"
 
 typedef H2O_VECTOR(h2o_kafka_log_handle_t *) st_h2o_kafka_log_handle_vector_t;
 

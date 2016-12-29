@@ -360,9 +360,10 @@ IF (WITH_RDKAFKA)
     ADD_CUSTOM_TARGET(build-rdkafka ./configure
         COMMAND make
         WORKING_DIRECTORY deps/librdkafka)
-    INCLUDE_DIRECTORIES(deps/librdkafka/src)
-    LINK_DIRECTORIES(deps/librdkafka/src)
-    LIST(INSERT EXTRA_LIBS 0 librdkafka.a)
+    INCLUDE_DIRECTORIES("${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src")
+    LIST(INSERT EXTRA_LIBS 0 lz4)
+    LIST(INSERT EXTRA_LIBS 0 sasl2)
+    LIST(INSERT EXTRA_LIBS 0 "${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src/librdkafka.a")
 ENDIF (WITH_RDKAFKA)
 
 SET_TARGET_PROPERTIES(libh2o PROPERTIES

@@ -31,7 +31,7 @@
 #include <sys/types.h>
 #include "h2o.h"
 #include "h2o/serverutil.h"
-#include "librdkafka/rdkafka.h"
+#include "rdkafka.h"
 
 struct st_h2o_kafka_log_handle_t {
     h2o_logconf_t *logconf_message;
