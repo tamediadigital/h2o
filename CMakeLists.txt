@@ -167,6 +167,10 @@ ENDIF ()
 
 SET(CMAKE_C_FLAGS "-O2 -g ${CC_WARNING_FLAGS} ${CMAKE_C_FLAGS} -DH2O_ROOT=\"${CMAKE_INSTALL_PREFIX}\" -DH2O_CONFIG_PATH=\"${CMAKE_INSTALL_SYSCONFDIR}/h2o.conf\"")
 
+IF (WITH_RDKAFKA)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_RDKAFKA=1")
+ENDIF (WITH_RDKAFKA)
+
 SET(LIBYAML_SOURCE_FILES
     deps/yaml/src/api.c
     deps/yaml/src/dumper.c
@@ -234,7 +238,6 @@ SET(LIB_SOURCE_FILES
     lib/core/util.c
 
     lib/handler/access_log.c
-    lib/handler/kafka_log.c
     lib/handler/chunked.c
     lib/handler/compress.c
     lib/handler/compress/gzip.c
@@ -254,7 +257,6 @@ SET(LIB_SOURCE_FILES
     lib/handler/http2_debug_state.c
     lib/handler/status/durations.c
     lib/handler/configurator/access_log.c
-    lib/handler/configurator/kafka_log.c
     lib/handler/configurator/compress.c
     lib/handler/configurator/errordoc.c
     lib/handler/configurator/expires.c
@@ -280,6 +282,12 @@ SET(LIB_SOURCE_FILES
     lib/http2/scheduler.c
     lib/http2/stream.c
     lib/http2/http2_debug_state.c)
+
+IF (WITH_RDKAFKA)
+    INCLUDE_DIRECTORIES("${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src")
+    LIST(INSERT LIB_SOURCE_FILES -1 lib/handler/kafka_log.c)
+    LIST(INSERT LIB_SOURCE_FILES -1 lib/handler/configurator/kafka_log.c)
+ENDIF (WITH_RDKAFKA)
 
 SET(UNIT_TEST_SOURCE_FILES
     ${LIB_SOURCE_FILES}
@@ -353,7 +361,6 @@ IF (WITH_RDKAFKA)
     ADD_CUSTOM_TARGET(build-rdkafka ./configure
         COMMAND make
         WORKING_DIRECTORY deps/librdkafka)
-    INCLUDE_DIRECTORIES("${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src")
     LIST(INSERT EXTRA_LIBS 0 lz4)
     LIST(INSERT EXTRA_LIBS 0 sasl2)
     LIST(INSERT EXTRA_LIBS 0 "${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src/librdkafka.a")
