@@ -67,10 +67,11 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     char *logline_hash = NULL;
     char buf_message[4096];
     char buf_key[4096];
-    char buf_hash[4096];
+    // char buf_hash[4096];
     size_t len_message = sizeof(buf_message);
     size_t len_hash = 0;
     size_t len_key = 0;
+    h2o_iovec_t *opaque = NULL;
 
     /* stringify */
     len_message = sizeof(buf_message);
@@ -78,8 +79,13 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     
     if(kh->logconf_hash)
     {
-    len_hash    = sizeof(buf_hash   );
-    logline_hash    = h2o_log_request(kh->logconf_hash   , req, &len_hash   , buf_hash   );
+    logline_hash    = h2o_log_request(kh->logconf_hash   , req, &len_hash   , NULL   );
+    }
+
+    if (len_hash != 0)
+    {
+        opaque = h2o_mem_alloc(sizeof(h2o_iovec_t));
+        *opaque = h2o_iovec_init(logline_hash, len_hash);
     }
     
     if(kh->logconf_key)
@@ -102,6 +108,7 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
         RD_KAFKA_V_VALUE(logline_message, len_message),
         RD_KAFKA_V_KEY(logline_key, len_key),
         RD_KAFKA_V_TIMESTAMP((int64_t)(ts.tv_sec) * 1000 + (int64_t)(ts.tv_usec) / 1000),
+        RD_KAFKA_V_OPAQUE(opaque),
         RD_KAFKA_V_END
         );
     if (res)
@@ -125,13 +132,15 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
             case ENOENT:
                 break;
         }
+        if (opaque) free(opaque);
+
+        if (logline_hash != NULL)
+             free(logline_hash);
     }
 
     /* free memory */
     if (logline_message != buf_message) free(logline_message);
     
-    if (logline_key != NULL)
-    if (logline_hash    != buf_hash   ) free(logline_hash   );
     
     if (logline_key != NULL)
     if (logline_key     != buf_key    ) free(logline_key    );

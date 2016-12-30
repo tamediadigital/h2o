@@ -23,6 +23,7 @@
 #include "h2o.h"
 #include "h2o/configurator.h"
 #include "rdkafka.h"
+#include "rdcrc32.h"
 
 typedef H2O_VECTOR(h2o_kafka_log_handle_t *) st_h2o_kafka_log_handle_vector_t;
 
@@ -45,6 +46,50 @@ int kafka_conf_set(rd_kafka_conf_t *rk_conf, const char* key, const char* value)
     return 0;
 }
 
+int32_t kafka_msg_partitioner_consistent (const rd_kafka_topic_t *rkt,
+                                             const void *key, size_t keylen,
+                                             int32_t partition_cnt,
+                                             void *rkt_opaque,
+                                             void *msg_opaque) {
+    h2o_iovec_t vec = *(h2o_iovec_t*)msg_opaque;
+    return rd_crc32(vec.base, vec.len) % partition_cnt;
+}
+
+int32_t kafka_msg_partitioner_consistent_random (const rd_kafka_topic_t *rkt,
+                                             const void *key, size_t keylen,
+                                             int32_t partition_cnt,
+                                             void *rkt_opaque,
+                                             void *msg_opaque) {
+    if (msg_opaque == NULL)
+      return rd_kafka_msg_partitioner_random(rkt,
+                                             key,
+                                             keylen,
+                                             partition_cnt,
+                                             rkt_opaque,
+                                             msg_opaque);
+    else
+      return kafka_msg_partitioner_consistent(rkt,
+                                             key,
+                                             keylen,
+                                             partition_cnt,
+                                             rkt_opaque,
+                                             msg_opaque);
+}
+
+void kafka_dr_cb (rd_kafka_t *rk,
+                 void *payload, size_t len,
+                 rd_kafka_resp_err_t err,
+                 void *opaque, void *msg_opaque)
+{
+    if (msg_opaque != NULL)
+    {
+        h2o_iovec_t vec = *(h2o_iovec_t*) msg_opaque;
+        if (vec.base != NULL)
+            free(vec.base);
+        free(msg_opaque);
+    }
+}
+
 int kafka_topic_conf_set(rd_kafka_topic_conf_t *rk_conf, const char* key, const char* value)
 {
     char errbuf[512];
@@ -55,6 +100,7 @@ int kafka_topic_conf_set(rd_kafka_topic_conf_t *rk_conf, const char* key, const 
         fprintf(stderr, "Kafka topic configuration error: %s\n", &(errbuf[0]));
         return -1;
     }
+    rd_kafka_topic_conf_set_partitioner_cb (rk_conf, kafka_msg_partitioner_consistent_random);
     return 0;
 }
 
@@ -159,6 +205,7 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
                     return -1;
             }
         }
+        rd_kafka_conf_set_dr_cb(rk_conf, kafka_dr_cb);
         if(topic == NULL)
         {
             h2o_configurator_errprintf(cmd, value, "`topic->name` must be declared");
