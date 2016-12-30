@@ -189,7 +189,7 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
                     h2o_configurator_errprintf(cmd, topic_value, "`key` must be a scalar");
                     return -1;
                 }
-                fmt_message = topic_value->data.scalar;
+                fmt_key = topic_value->data.scalar;
             }
             else
             if (strcmp(topic_key->data.scalar, "partition_hash") == 0) {
@@ -197,7 +197,7 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
                     h2o_configurator_errprintf(cmd, topic_value, "`partition_hash` must be a scalar");
                     return -1;
                 }
-                fmt_message = topic_value->data.scalar;
+                fmt_hash = topic_value->data.scalar;
             }
             else
             {
