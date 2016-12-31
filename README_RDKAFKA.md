@@ -1,9 +1,9 @@
 ### Kafka plugin for h2o
 
-[librdkafka](https://github.com/edenhill/librdkafka) is used to send log message to a kafka server.
+[librdkafka](https://github.com/edenhill/librdkafka) is used to send log messages to a kafka server.
 
 #### Build H2O without librdkafka
-`-DWITH_RDKAFKA=on` option can be added to cmake to exclude `librdkafka` from  h2o configuration.
+`-DWITH_RDKAFKA=off` option can be added to cmake to exclude `librdkafka` from  h2o configuration.
 For example:
 
 ```sh
@@ -11,8 +11,6 @@ cmake -DWITH_BUNDLED_SSL=on -DWITH_RDKAFKA=off .
 ```
 
 #### Configure Kafka
-
-``
 
 `kafka-log` is a host option for kafka configuration.
 Each host (path) may have one `kafka-log` option.
@@ -49,7 +47,6 @@ hosts:
         message: <optional_format_string>
         key: <optional_format_string>
         partition_hash: <optional_format_string>
-        partition: <optional_integer>
         # <... other_kafka_topic_configs>
       topic:
         name: h2o-kafka-2 <required>
