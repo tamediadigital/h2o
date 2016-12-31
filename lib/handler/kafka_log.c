@@ -84,6 +84,7 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
         logline_hash    = h2o_log_request(kh->logconf_hash, req, &len_hash, buf_hash);
     }
 
+    // compute CRC 32 hash if logline_hash is not NULL
     if (logline_hash != NULL)
     {
         opaque = h2o_mem_alloc(sizeof(h2o_kafka_msg_opaque_t));
@@ -98,6 +99,9 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     }
 
     int attempt = 0;
+    // max number of attempts
+    int maxAttempts = 2;
+    // handle all existing events
     rd_kafka_poll(self->kh->rk, 0);
     /* emit */
     struct timeval ts = req->timestamps.request_begin_at;
@@ -122,8 +126,9 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
         switch(err)
         {
             case ENOBUFS:
-                if(attempt < 2)
+                if(attempt < maxAttempts)
                 {
+                    // handle all events, wait up to 10 ms.
                     rd_kafka_poll(self->kh->rk, 10);
                     goto L;
                 }
@@ -135,7 +140,9 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
             case ENOENT:
                 break;
         }
-        if (opaque) free(opaque);
+        // free opaque on error
+        if (opaque)
+            free(opaque);
     }
 
     /* free memory */
@@ -149,6 +156,7 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
         free(logline_hash);
 }
 
+// Dispose configuration callback (for internal references)
 static void on_dispose_handle(void *_kh)
 {
     h2o_kafka_log_handle_t *kh = _kh;
@@ -156,9 +164,9 @@ static void on_dispose_handle(void *_kh)
     h2o_logconf_dispose(kh->logconf_message);
     h2o_logconf_dispose(kh->logconf_key);
     h2o_logconf_dispose(kh->logconf_hash);
-    // close(kh->fd);
 }
 
+/// parse log configurations
 h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     rd_kafka_conf_t* rk_conf,
     rd_kafka_topic_conf_t* rkt_conf,
@@ -197,6 +205,7 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     rd_kafka_t *rk = rd_kafka_new(RD_KAFKA_PRODUCER, rk_conf, errbuf, sizeof(errbuf));
     if (rk == NULL)
     {
+        // Dispose configuration on error
         h2o_logconf_dispose(logconf_message);
         if(logconf_key)
         h2o_logconf_dispose(logconf_key    );
@@ -209,6 +218,7 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     rd_kafka_topic_t *rkt = rd_kafka_topic_new(rk, topic, rkt_conf);
     if (rkt == NULL)
     {
+        // Dispose configuration on error
         h2o_logconf_dispose(logconf_message);
         if(logconf_key)
         h2o_logconf_dispose(logconf_key    );
@@ -228,6 +238,7 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     return kh;
 }
 
+// Dispose configuration callback (final)
 static void dispose(h2o_logger_t *_self)
 {
     struct st_h2o_kafka_logger_t *self = (void *)_self;
@@ -235,6 +246,7 @@ static void dispose(h2o_logger_t *_self)
     h2o_mem_release_shared(self->kh);
 }
 
+// registern log in h2o
 h2o_logger_t *h2o_kafka_log_register(h2o_pathconf_t *pathconf, h2o_kafka_log_handle_t *kh)
 {
     struct st_h2o_kafka_logger_t *self = (void *)h2o_create_logger(pathconf, sizeof(*self));

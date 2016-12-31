@@ -81,6 +81,7 @@ int kafka_topic_conf_set(rd_kafka_topic_conf_t *rk_conf, const char* key, const 
     return 0;
 }
 
+// h2o-kafka configuration parser
 static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t *ctx, yoml_t *node)
 {
     struct st_h2o_kafka_log_configurator_t *self = (void *)cmd->configurator;
@@ -93,9 +94,11 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
     }
 
     rk_conf = rd_kafka_conf_new();
+    // parse global configuration for this path
     for (size_t i = 0; i != node->data.mapping.size; ++i) {
         yoml_t *key = node->data.mapping.elements[i].key;
         yoml_t *value = node->data.mapping.elements[i].value;
+        // skip topic
         if(strcmp(key->data.scalar, "topic") == 0)
         {
             continue;
@@ -105,14 +108,17 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
             h2o_configurator_errprintf(cmd, value, "kafka configuration must be scalar");
             return -1;
         }
+        // add configuration to kafka
         if(kafka_conf_set(rk_conf, key->data.scalar, value->data.scalar))
             return -1;
     }
 
+    // parse topic configuration for this path for each topic
     for (size_t i = 0; i != node->data.mapping.size; ++i)
     {
         yoml_t *key = node->data.mapping.elements[i].key;
         yoml_t *value = node->data.mapping.elements[i].value;
+        // skip all options except 'topic'
         if(strcmp(key->data.scalar, "topic") != 0)
         {
             continue;
@@ -127,7 +133,9 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
         const char *fmt_message = NULL;
         const char *fmt_key     = NULL;
         const char *fmt_hash    = NULL;
+        // create new topic
         rd_kafka_topic_conf_t* rkt_conf = rd_kafka_topic_conf_new();
+        // parse topic options
         for (size_t i = 0; i != value->data.mapping.size; ++i)
         {
             yoml_t *topic_key = value->data.mapping.elements[i].key;
@@ -178,6 +186,7 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
             }
             else
             {
+                // parse kafka topic options
                 if(kafka_topic_conf_set(rkt_conf, topic_key->data.scalar, topic_value->data.scalar))
                     return -1;
             }
