@@ -23,7 +23,6 @@
 #include "h2o.h"
 #include "h2o/configurator.h"
 #include "rdkafka.h"
-#include "rdcrc32.h"
 
 typedef H2O_VECTOR(h2o_kafka_log_handle_t *) st_h2o_kafka_log_handle_vector_t;
 
@@ -46,34 +45,15 @@ int kafka_conf_set(rd_kafka_conf_t *rk_conf, const char* key, const char* value)
     return 0;
 }
 
-int32_t kafka_msg_partitioner_consistent (const rd_kafka_topic_t *rkt,
-                                             const void *key, size_t keylen,
-                                             int32_t partition_cnt,
-                                             void *rkt_opaque,
-                                             void *msg_opaque) {
-    h2o_iovec_t vec = *(h2o_iovec_t*)msg_opaque;
-    return rd_crc32(vec.base, vec.len) % partition_cnt;
-}
-
 int32_t kafka_msg_partitioner_consistent_random (const rd_kafka_topic_t *rkt,
                                              const void *key, size_t keylen,
                                              int32_t partition_cnt,
                                              void *rkt_opaque,
                                              void *msg_opaque) {
-    if (msg_opaque == NULL)
-      return rd_kafka_msg_partitioner_random(rkt,
-                                             key,
-                                             keylen,
-                                             partition_cnt,
-                                             rkt_opaque,
-                                             msg_opaque);
-    else
-      return kafka_msg_partitioner_consistent(rkt,
-                                             key,
-                                             keylen,
-                                             partition_cnt,
-                                             rkt_opaque,
-                                             msg_opaque);
+    h2o_kafka_msg_opaque_t *data = (h2o_kafka_msg_opaque_t*) msg_opaque;
+    if (data != NULL && data->use_hash)
+      return data->hash % partition_cnt;
+    return rd_kafka_msg_partitioner_consistent_random(rkt, key, keylen, partition_cnt, rkt_opaque, msg_opaque);
 }
 
 void kafka_dr_cb (rd_kafka_t *rk,
@@ -83,9 +63,6 @@ void kafka_dr_cb (rd_kafka_t *rk,
 {
     if (msg_opaque != NULL)
     {
-        h2o_iovec_t vec = *(h2o_iovec_t*) msg_opaque;
-        if (vec.base != NULL)
-            free(vec.base);
         free(msg_opaque);
     }
 }

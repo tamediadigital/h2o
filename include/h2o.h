@@ -1553,6 +1553,11 @@ void h2o_access_log_register_configurator(h2o_globalconf_t *conf);
 /* lib/kafka_log.c */
 #ifdef WITH_RDKAFKA
 
+typedef struct st_h2o_kafka_msg_opaque_t {
+    int32_t hash;
+    int32_t use_hash;
+} h2o_kafka_msg_opaque_t;
+
 typedef struct st_h2o_kafka_log_handle_t h2o_kafka_log_handle_t;
 
 // int h2o_kafka_log_open_log(const char *path);

@@ -32,6 +32,7 @@
 #include "h2o.h"
 #include "h2o/serverutil.h"
 #include "rdkafka.h"
+#include "rdcrc32.h"
 
 struct st_h2o_kafka_log_handle_t {
     h2o_logconf_t *logconf_message;
@@ -67,11 +68,11 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     char *logline_hash = NULL;
     char buf_message[4096];
     char buf_key[4096];
-    // char buf_hash[4096];
+    char buf_hash[4096];
     size_t len_message = sizeof(buf_message);
     size_t len_hash = 0;
     size_t len_key = 0;
-    h2o_iovec_t *opaque = NULL;
+    h2o_kafka_msg_opaque_t *opaque = NULL;
 
     /* stringify */
     len_message = sizeof(buf_message);
@@ -79,19 +80,21 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     
     if(kh->logconf_hash)
     {
-    logline_hash    = h2o_log_request(kh->logconf_hash   , req, &len_hash   , NULL   );
+        len_hash = sizeof(buf_hash);
+        logline_hash    = h2o_log_request(kh->logconf_hash, req, &len_hash, buf_hash);
     }
 
-    if (len_hash != 0)
+    if (logline_hash != NULL)
     {
-        opaque = h2o_mem_alloc(sizeof(h2o_iovec_t));
-        *opaque = h2o_iovec_init(logline_hash, len_hash);
+        opaque = h2o_mem_alloc(sizeof(h2o_kafka_msg_opaque_t));
+        opaque->hash = rd_crc32(logline_hash, len_hash);
+        opaque->use_hash = TRUE;
     }
     
     if(kh->logconf_key)
     {
-    len_key     = sizeof(buf_key    );
-    logline_key     = h2o_log_request(kh->logconf_key    , req, &len_key    , buf_key    );
+        len_key = sizeof(buf_key);
+        logline_key = h2o_log_request(kh->logconf_key, req, &len_key, buf_key);
     }
 
     int attempt = 0;
@@ -133,17 +136,17 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
                 break;
         }
         if (opaque) free(opaque);
-
-        if (logline_hash != NULL)
-             free(logline_hash);
     }
 
     /* free memory */
-    if (logline_message != buf_message) free(logline_message);
+    if (logline_message != buf_message)
+        free(logline_message);
     
-    
-    if (logline_key != NULL)
-    if (logline_key     != buf_key    ) free(logline_key    );
+    if (logline_key != NULL && logline_key != buf_key)
+        free(logline_key);
+
+    if (logline_hash != NULL && logline_hash != buf_hash)
+        free(logline_hash);
 }
 
 // int h2o_kafka_log_open_log(const char *path)
@@ -204,7 +207,7 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     const char *fmt_hash)
 {
     h2o_logconf_t *logconf_message;
-    h2o_logconf_t *logconf_key= NULL;
+    h2o_logconf_t *logconf_key = NULL;
     h2o_logconf_t *logconf_hash = NULL;
     h2o_kafka_log_handle_t *kh;
     char errbuf[512];
@@ -249,15 +252,9 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
         h2o_logconf_dispose(logconf_key    );
         if(logconf_hash)
         h2o_logconf_dispose(logconf_hash   );
-        fprintf(stderr, "%s\n", errbuf);
+        fprintf(stderr, "%s\n", "failed to create kafka topic");
         return NULL;
     }
-
-    // /* open log file */
-    // if ((fd = h2o_kafka_log_open_log(path)) == -1) {
-    //     h2o_logconf_dispose(logconf);
-    //     return NULL;
-    // }
 
     kh = h2o_mem_alloc_shared(NULL, sizeof(*kh), on_dispose_handle);
     kh->logconf_message = logconf_message;
