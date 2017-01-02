@@ -109,19 +109,6 @@ INCLUDE_DIRECTORIES(
     deps/yaml/include
     deps/yoml)
 
-
-IF (PKG_CONFIG_FOUND)
-    PKG_CHECK_MODULES(RDKAFKA rdkafka>=0.9.0)
-    IF (RDKAFKA_FOUND)
-        INCLUDE_DIRECTORIES(${RDKAFKA_INCLUDE_DIRS})
-        LINK_DIRECTORIES(${RDKAFKA_LIBRARY_DIRS})
-    ENDIF (RDKAFKA_FOUND)
-ENDIF (PKG_CONFIG_FOUND)
-IF (PKG_CONFIG_FOUND)
-    IF (NOT RDKAFKA_FOUND)
-        MESSAGE(STATUS "rdkafka not found")
-    ENDIF (NOT RDKAFKA_FOUND)
-ENDIF (PKG_CONFIG_FOUND)
 IF (PKG_CONFIG_FOUND)
     PKG_CHECK_MODULES(LIBUV libuv>=1.0.0)
     IF (LIBUV_FOUND)
@@ -180,6 +167,10 @@ IF ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
 ENDIF ()
 
 SET(CMAKE_C_FLAGS "-O2 -g ${CC_WARNING_FLAGS} ${CMAKE_C_FLAGS} -DH2O_ROOT=\"${CMAKE_INSTALL_PREFIX}\" -DH2O_CONFIG_PATH=\"${CMAKE_INSTALL_SYSCONFDIR}/h2o.conf\"")
+
+IF (WITH_RDKAFKA)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_RDKAFKA=1")
+ENDIF (WITH_RDKAFKA)
 
 SET(LIBYAML_SOURCE_FILES
     deps/yaml/src/api.c
@@ -254,7 +245,6 @@ SET(LIB_SOURCE_FILES
     lib/core/util.c
 
     lib/handler/access_log.c
-    lib/handler/kafka_log.c
     lib/handler/chunked.c
     lib/handler/compress.c
     lib/handler/compress/gzip.c
@@ -274,7 +264,6 @@ SET(LIB_SOURCE_FILES
     lib/handler/http2_debug_state.c
     lib/handler/status/durations.c
     lib/handler/configurator/access_log.c
-    lib/handler/configurator/kafka_log.c
     lib/handler/configurator/compress.c
     lib/handler/configurator/errordoc.c
     lib/handler/configurator/expires.c
@@ -300,6 +289,12 @@ SET(LIB_SOURCE_FILES
     lib/http2/scheduler.c
     lib/http2/stream.c
     lib/http2/http2_debug_state.c)
+
+IF (WITH_RDKAFKA)
+    INCLUDE_DIRECTORIES("${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src")
+    LIST(INSERT LIB_SOURCE_FILES -1 lib/handler/kafka_log.c)
+    LIST(INSERT LIB_SOURCE_FILES -1 lib/handler/configurator/kafka_log.c)
+ENDIF (WITH_RDKAFKA)
 
 SET(UNIT_TEST_SOURCE_FILES
     ${LIB_SOURCE_FILES}
@@ -369,17 +364,31 @@ ELSE ()
     ADD_LIBRARY(libh2o-evloop ${LIB_SOURCE_FILES})
 ENDIF (WSLAY_FOUND)
 
+IF (WITH_RDKAFKA)
+    ADD_CUSTOM_TARGET(build-rdkafka ./configure
+        COMMAND make
+        WORKING_DIRECTORY deps/librdkafka)
+    LIST(INSERT EXTRA_LIBS 0 lz4)
+    LIST(INSERT EXTRA_LIBS 0 sasl2)
+    LIST(INSERT EXTRA_LIBS 0 "${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src/librdkafka.a")
+ENDIF (WITH_RDKAFKA)
+
 SET_TARGET_PROPERTIES(libh2o PROPERTIES
     OUTPUT_NAME h2o
     VERSION ${LIBRARY_VERSION}
     SOVERSION ${LIBRARY_SOVERSION})
-TARGET_LINK_LIBRARIES(libh2o ${LIBUV_LIBRARIES} ${RDKAFKA_LIBRARIES} ${EXTRA_LIBS})
+TARGET_LINK_LIBRARIES(libh2o ${LIBUV_LIBRARIES} ${EXTRA_LIBS})
 SET_TARGET_PROPERTIES(libh2o-evloop PROPERTIES
     OUTPUT_NAME h2o-evloop
     COMPILE_FLAGS "-DH2O_USE_LIBUV=0"
     VERSION ${LIBRARY_VERSION}
     SOVERSION ${LIBRARY_SOVERSION})
 TARGET_LINK_LIBRARIES(libh2o-evloop ${EXTRA_LIBS})
+
+IF (WITH_RDKAFKA)
+    ADD_DEPENDENCIES(libh2o build-rdkafka)
+    ADD_DEPENDENCIES(libh2o-evloop build-rdkafka)
+ENDIF (WITH_RDKAFKA)
 
 IF (OPENSSL_FOUND)
     TARGET_INCLUDE_DIRECTORIES(libh2o PUBLIC ${OPENSSL_INCLUDE_DIR})
@@ -478,7 +487,7 @@ IF (WITH_MRUBY)
         "m")
     ADD_DEPENDENCIES(h2o mruby)
 ENDIF (WITH_MRUBY)
-TARGET_LINK_LIBRARIES(h2o ${RDKAFKA_LIBRARIES} ${EXTRA_LIBS})
+TARGET_LINK_LIBRARIES(h2o ${EXTRA_LIBS})
 
 INSTALL(TARGETS h2o
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
