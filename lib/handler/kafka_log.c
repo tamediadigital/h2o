@@ -31,7 +31,8 @@
 #include <sys/types.h>
 #include "h2o.h"
 #include "h2o/serverutil.h"
-#include "librdkafka/rdkafka.h"
+#include "rdkafka.h"
+#include "rdcrc32.h"
 
 struct st_h2o_kafka_log_handle_t {
     h2o_logconf_t *logconf_message;
@@ -71,6 +72,7 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     size_t len_message = sizeof(buf_message);
     size_t len_hash = 0;
     size_t len_key = 0;
+    h2o_kafka_msg_opaque_t *opaque = NULL;
 
     /* stringify */
     len_message = sizeof(buf_message);
@@ -78,17 +80,28 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     
     if(kh->logconf_hash)
     {
-    len_hash    = sizeof(buf_hash   );
-    logline_hash    = h2o_log_request(kh->logconf_hash   , req, &len_hash   , buf_hash   );
+        len_hash = sizeof(buf_hash);
+        logline_hash    = h2o_log_request(kh->logconf_hash, req, &len_hash, buf_hash);
+    }
+
+    // compute CRC 32 hash if logline_hash is not NULL
+    if (logline_hash != NULL)
+    {
+        opaque = h2o_mem_alloc(sizeof(h2o_kafka_msg_opaque_t));
+        opaque->hash = rd_crc32(logline_hash, len_hash);
+        opaque->use_hash = TRUE;
     }
     
     if(kh->logconf_key)
     {
-    len_key     = sizeof(buf_key    );
-    logline_key     = h2o_log_request(kh->logconf_key    , req, &len_key    , buf_key    );
+        len_key = sizeof(buf_key);
+        logline_key = h2o_log_request(kh->logconf_key, req, &len_key, buf_key);
     }
 
     int attempt = 0;
+    // max number of attempts
+    int maxAttempts = 2;
+    // handle all existing events
     rd_kafka_poll(self->kh->rk, 0);
     /* emit */
     struct timeval ts = req->timestamps.request_begin_at;
@@ -102,6 +115,7 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
         RD_KAFKA_V_VALUE(logline_message, len_message),
         RD_KAFKA_V_KEY(logline_key, len_key),
         RD_KAFKA_V_TIMESTAMP((int64_t)(ts.tv_sec) * 1000 + (int64_t)(ts.tv_usec) / 1000),
+        RD_KAFKA_V_OPAQUE(opaque),
         RD_KAFKA_V_END
         );
     if (res)
@@ -112,8 +126,9 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
         switch(err)
         {
             case ENOBUFS:
-                if(attempt < 2)
+                if(attempt < maxAttempts)
                 {
+                    // handle all events, wait up to 10 ms.
                     rd_kafka_poll(self->kh->rk, 10);
                     goto L;
                 }
@@ -125,56 +140,23 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
             case ENOENT:
                 break;
         }
+        // free opaque on error
+        if (opaque)
+            free(opaque);
     }
 
     /* free memory */
-    if (logline_message != buf_message) free(logline_message);
+    if (logline_message != buf_message)
+        free(logline_message);
     
-    if (logline_key != NULL)
-    if (logline_hash    != buf_hash   ) free(logline_hash   );
-    
-    if (logline_key != NULL)
-    if (logline_key     != buf_key    ) free(logline_key    );
+    if (logline_key != NULL && logline_key != buf_key)
+        free(logline_key);
+
+    if (logline_hash != NULL && logline_hash != buf_hash)
+        free(logline_hash);
 }
 
-// int h2o_kafka_log_open_log(const char *path)
-// {
-//     int fd;
-
-//     if (path[0] == '|') {
-//         int pipefds[2];
-//         pid_t pid;
-//         char *argv[4] = {"/bin/sh", "-c", (char *)(path + 1), NULL};
-//         /* create pipe */
-//         if (pipe(pipefds) != 0) {
-//             perror("pipe failed");
-//             return -1;
-//         }
-//         if (fcntl(pipefds[1], F_SETFD, FD_CLOEXEC) == -1) {
-//             perror("failed to set FD_CLOEXEC on pipefds[1]");
-//             return -1;
-//         }
-//         /* spawn the logger */
-//         int mapped_fds[] = {pipefds[0], 0, /* map pipefds[0] to stdin */
-//                             -1};
-//         if ((pid = h2o_spawnp(argv[0], argv, mapped_fds, 0)) == -1) {
-//             fprintf(stderr, "failed to open logger: %s:%s\n", path + 1, strerror(errno));
-//             return -1;
-//         }
-//         /* close the read side of the pipefds and return the write side */
-//         close(pipefds[0]);
-//         fd = pipefds[1];
-//     } else {
-//         if ((fd = open(path, O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0644)) == -1) {
-//             fprintf(stderr, "failed to open log file:%s:%s\n", path, strerror(errno));
-//             return -1;
-//         }
-//     }
-
-//     return fd;
-// }
-
-
+// Dispose configuration callback (for internal references)
 static void on_dispose_handle(void *_kh)
 {
     h2o_kafka_log_handle_t *kh = _kh;
@@ -182,9 +164,9 @@ static void on_dispose_handle(void *_kh)
     h2o_logconf_dispose(kh->logconf_message);
     h2o_logconf_dispose(kh->logconf_key);
     h2o_logconf_dispose(kh->logconf_hash);
-    // close(kh->fd);
 }
 
+/// parse log configurations
 h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     rd_kafka_conf_t* rk_conf,
     rd_kafka_topic_conf_t* rkt_conf,
@@ -195,7 +177,7 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     const char *fmt_hash)
 {
     h2o_logconf_t *logconf_message;
-    h2o_logconf_t *logconf_key= NULL;
+    h2o_logconf_t *logconf_key = NULL;
     h2o_logconf_t *logconf_hash = NULL;
     h2o_kafka_log_handle_t *kh;
     char errbuf[512];
@@ -223,6 +205,7 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     rd_kafka_t *rk = rd_kafka_new(RD_KAFKA_PRODUCER, rk_conf, errbuf, sizeof(errbuf));
     if (rk == NULL)
     {
+        // Dispose configuration on error
         h2o_logconf_dispose(logconf_message);
         if(logconf_key)
         h2o_logconf_dispose(logconf_key    );
@@ -235,20 +218,15 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     rd_kafka_topic_t *rkt = rd_kafka_topic_new(rk, topic, rkt_conf);
     if (rkt == NULL)
     {
+        // Dispose configuration on error
         h2o_logconf_dispose(logconf_message);
         if(logconf_key)
         h2o_logconf_dispose(logconf_key    );
         if(logconf_hash)
         h2o_logconf_dispose(logconf_hash   );
-        fprintf(stderr, "%s\n", errbuf);
+        fprintf(stderr, "%s\n", "failed to create kafka topic");
         return NULL;
     }
-
-    // /* open log file */
-    // if ((fd = h2o_kafka_log_open_log(path)) == -1) {
-    //     h2o_logconf_dispose(logconf);
-    //     return NULL;
-    // }
 
     kh = h2o_mem_alloc_shared(NULL, sizeof(*kh), on_dispose_handle);
     kh->logconf_message = logconf_message;
@@ -260,6 +238,7 @@ h2o_kafka_log_handle_t *h2o_kafka_log_open_handle(
     return kh;
 }
 
+// Dispose configuration callback (final)
 static void dispose(h2o_logger_t *_self)
 {
     struct st_h2o_kafka_logger_t *self = (void *)_self;
@@ -267,6 +246,7 @@ static void dispose(h2o_logger_t *_self)
     h2o_mem_release_shared(self->kh);
 }
 
+// registern log in h2o
 h2o_logger_t *h2o_kafka_log_register(h2o_pathconf_t *pathconf, h2o_kafka_log_handle_t *kh)
 {
     struct st_h2o_kafka_logger_t *self = (void *)h2o_create_logger(pathconf, sizeof(*self));

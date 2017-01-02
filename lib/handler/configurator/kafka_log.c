@@ -22,7 +22,7 @@
 #include <stdlib.h>
 #include "h2o.h"
 #include "h2o/configurator.h"
-#include "librdkafka/rdkafka.h"
+#include "rdkafka.h"
 
 typedef H2O_VECTOR(h2o_kafka_log_handle_t *) st_h2o_kafka_log_handle_vector_t;
 
@@ -45,6 +45,28 @@ int kafka_conf_set(rd_kafka_conf_t *rk_conf, const char* key, const char* value)
     return 0;
 }
 
+int32_t kafka_msg_partitioner_consistent_random (const rd_kafka_topic_t *rkt,
+                                             const void *key, size_t keylen,
+                                             int32_t partition_cnt,
+                                             void *rkt_opaque,
+                                             void *msg_opaque) {
+    h2o_kafka_msg_opaque_t *data = (h2o_kafka_msg_opaque_t*) msg_opaque;
+    if (data != NULL && data->use_hash)
+      return data->hash % partition_cnt;
+    return rd_kafka_msg_partitioner_consistent_random(rkt, key, keylen, partition_cnt, rkt_opaque, msg_opaque);
+}
+
+void kafka_dr_cb (rd_kafka_t *rk,
+                 void *payload, size_t len,
+                 rd_kafka_resp_err_t err,
+                 void *opaque, void *msg_opaque)
+{
+    if (msg_opaque != NULL)
+    {
+        free(msg_opaque);
+    }
+}
+
 int kafka_topic_conf_set(rd_kafka_topic_conf_t *rk_conf, const char* key, const char* value)
 {
     char errbuf[512];
@@ -55,9 +77,11 @@ int kafka_topic_conf_set(rd_kafka_topic_conf_t *rk_conf, const char* key, const 
         fprintf(stderr, "Kafka topic configuration error: %s\n", &(errbuf[0]));
         return -1;
     }
+    rd_kafka_topic_conf_set_partitioner_cb (rk_conf, kafka_msg_partitioner_consistent_random);
     return 0;
 }
 
+// h2o-kafka configuration parser
 static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t *ctx, yoml_t *node)
 {
     struct st_h2o_kafka_log_configurator_t *self = (void *)cmd->configurator;
@@ -70,9 +94,11 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
     }
 
     rk_conf = rd_kafka_conf_new();
+    // parse global configuration for this path
     for (size_t i = 0; i != node->data.mapping.size; ++i) {
         yoml_t *key = node->data.mapping.elements[i].key;
         yoml_t *value = node->data.mapping.elements[i].value;
+        // skip topic
         if(strcmp(key->data.scalar, "topic") == 0)
         {
             continue;
@@ -82,14 +108,17 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
             h2o_configurator_errprintf(cmd, value, "kafka configuration must be scalar");
             return -1;
         }
+        // add configuration to kafka
         if(kafka_conf_set(rk_conf, key->data.scalar, value->data.scalar))
             return -1;
     }
 
+    // parse topic configuration for this path for each topic
     for (size_t i = 0; i != node->data.mapping.size; ++i)
     {
         yoml_t *key = node->data.mapping.elements[i].key;
         yoml_t *value = node->data.mapping.elements[i].value;
+        // skip all options except 'topic'
         if(strcmp(key->data.scalar, "topic") != 0)
         {
             continue;
@@ -104,7 +133,9 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
         const char *fmt_message = NULL;
         const char *fmt_key     = NULL;
         const char *fmt_hash    = NULL;
+        // create new topic
         rd_kafka_topic_conf_t* rkt_conf = rd_kafka_topic_conf_new();
+        // parse topic options
         for (size_t i = 0; i != value->data.mapping.size; ++i)
         {
             yoml_t *topic_key = value->data.mapping.elements[i].key;
@@ -143,7 +174,7 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
                     h2o_configurator_errprintf(cmd, topic_value, "`key` must be a scalar");
                     return -1;
                 }
-                fmt_message = topic_value->data.scalar;
+                fmt_key = topic_value->data.scalar;
             }
             else
             if (strcmp(topic_key->data.scalar, "partition_hash") == 0) {
@@ -151,14 +182,16 @@ static int on_config(h2o_configurator_command_t *cmd, h2o_configurator_context_t
                     h2o_configurator_errprintf(cmd, topic_value, "`partition_hash` must be a scalar");
                     return -1;
                 }
-                fmt_message = topic_value->data.scalar;
+                fmt_hash = topic_value->data.scalar;
             }
             else
             {
+                // parse kafka topic options
                 if(kafka_topic_conf_set(rkt_conf, topic_key->data.scalar, topic_value->data.scalar))
                     return -1;
             }
         }
+        rd_kafka_conf_set_dr_cb(rk_conf, kafka_dr_cb);
         if(topic == NULL)
         {
             h2o_configurator_errprintf(cmd, value, "`topic->name` must be declared");
