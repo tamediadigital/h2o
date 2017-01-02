@@ -172,6 +172,16 @@ IF (WITH_RDKAFKA)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_RDKAFKA=1")
 ENDIF (WITH_RDKAFKA)
 
+IF (WITH_RDKAFKA)
+    ADD_CUSTOM_COMMAND(OUTPUT  deps/librdkafka/src/librdkafka.a deps/librdkafka/src/rdkafka.h
+        COMMAND ./configure
+        COMMAND make
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/deps/librdkafka)
+    LIST(INSERT EXTRA_LIBS 0 lz4)
+    LIST(INSERT EXTRA_LIBS 0 sasl2)
+    LIST(INSERT EXTRA_LIBS 0 "${CMAKE_CURRENT_SOURCE_DIR}/deps/librdkafka/src/librdkafka.a")
+ENDIF (WITH_RDKAFKA)
+
 SET(LIBYAML_SOURCE_FILES
     deps/yaml/src/api.c
     deps/yaml/src/dumper.c
@@ -291,7 +301,8 @@ SET(LIB_SOURCE_FILES
     lib/http2/http2_debug_state.c)
 
 IF (WITH_RDKAFKA)
-    INCLUDE_DIRECTORIES("${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src")
+    INCLUDE_DIRECTORIES(deps/librdkafka/src)
+    LIST(INSERT LIB_SOURCE_FILES -1 deps/librdkafka/src/rdkafka.h)
     LIST(INSERT LIB_SOURCE_FILES -1 lib/handler/kafka_log.c)
     LIST(INSERT LIB_SOURCE_FILES -1 lib/handler/configurator/kafka_log.c)
 ENDIF (WITH_RDKAFKA)
@@ -364,15 +375,6 @@ ELSE ()
     ADD_LIBRARY(libh2o-evloop ${LIB_SOURCE_FILES})
 ENDIF (WSLAY_FOUND)
 
-IF (WITH_RDKAFKA)
-    ADD_CUSTOM_TARGET(build-rdkafka ./configure
-        COMMAND make
-        WORKING_DIRECTORY deps/librdkafka)
-    LIST(INSERT EXTRA_LIBS 0 lz4)
-    LIST(INSERT EXTRA_LIBS 0 sasl2)
-    LIST(INSERT EXTRA_LIBS 0 "${CMAKE_CURRENT_BINARY_DIR}/deps/librdkafka/src/librdkafka.a")
-ENDIF (WITH_RDKAFKA)
-
 SET_TARGET_PROPERTIES(libh2o PROPERTIES
     OUTPUT_NAME h2o
     VERSION ${LIBRARY_VERSION}
@@ -385,10 +387,6 @@ SET_TARGET_PROPERTIES(libh2o-evloop PROPERTIES
     SOVERSION ${LIBRARY_SOVERSION})
 TARGET_LINK_LIBRARIES(libh2o-evloop ${EXTRA_LIBS})
 
-IF (WITH_RDKAFKA)
-    ADD_DEPENDENCIES(libh2o build-rdkafka)
-    ADD_DEPENDENCIES(libh2o-evloop build-rdkafka)
-ENDIF (WITH_RDKAFKA)
 
 IF (OPENSSL_FOUND)
     TARGET_INCLUDE_DIRECTORIES(libh2o PUBLIC ${OPENSSL_INCLUDE_DIR})
