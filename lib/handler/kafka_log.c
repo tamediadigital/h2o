@@ -29,10 +29,10 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <zlib.h>
 #include "h2o.h"
 #include "h2o/serverutil.h"
 #include "rdkafka.h"
-#include "rdcrc32.h"
 
 struct st_h2o_kafka_log_handle_t {
     h2o_logconf_t *logconf_message;
@@ -88,7 +88,7 @@ static void log_access(h2o_logger_t *_self, h2o_req_t *req)
     if (logline_hash != NULL)
     {
         opaque = h2o_mem_alloc(sizeof(h2o_kafka_msg_opaque_t));
-        opaque->hash = rd_crc32(logline_hash, len_hash);
+        opaque->hash = crc32(crc32(0, NULL, 0), (const unsigned char *)logline_hash, len_hash);
         opaque->use_hash = TRUE;
     }
     
