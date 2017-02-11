@@ -9,21 +9,25 @@ MRuby::Gem::Specification.new('mruby-file-stat') do |spec|
     'LD' => "#{build.linker.command} #{build.linker.flags.join(' ')}",
     'AR' => build.archiver.command
   }
-  config = "#{build_dir}/config.h"
+  config = "#{dir}/config.h"
+  build_config = "#{build_dir}/config.h"
 
   file config do
-    FileUtils.mkdir_p build_dir, :verbose => true
-    Dir.chdir build_dir do
+    Dir.chdir dir do
       if ENV['OS'] == 'Windows_NT'
         _pp 'on Windows', dir
-        FileUtils.touch "#{build_dir}/config.h", :verbose => true
+        FileUtils.touch "config.h", :verbose => true
       else
         _pp './configure', dir
-        system env, "#{dir}/configure"
+        system env, "./configure"
       end
     end
   end
-  file "#{dir}/src/file-stat.c" => config
+  file build_config => config do
+    FileUtils.mkdir_p build_dir, :verbose => true
+    FileUtils.cp config, build_config, :verbose => true
+  end
+  file "#{dir}/src/file-stat.c" => build_config
   task :clean do
     FileUtils.rm_f config, :verbose => true
   end
