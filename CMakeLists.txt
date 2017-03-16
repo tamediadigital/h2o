@@ -168,7 +168,7 @@ IF (WITH_RDKAFKA)
     ExternalProject_Add(librdkafka-git
     GIT_REPOSITORY https://github.com/tamediadigital/librdkafka.git
     INSTALL_COMMAND ""
-    CMAKE_ARGS -DRDKAFKA_BUILD_EXAMPLES=OFF)
+    CMAKE_ARGS -DRDKAFKA_BUILD_EXAMPLES=OFF -DRDKAFKA_BUILD_TESTS=OFF)
 
     SET(RDKAFKA_LIB ${BINARY_DIR}/librdkafka-git-prefix/src/librdkafka-git-build/src/librdkafka.a)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_RDKAFKA=1")
