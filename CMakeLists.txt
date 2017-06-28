@@ -175,6 +175,7 @@ IF (WITH_RDKAFKA)
 
     ExternalProject_Add(librdkafka-git
     GIT_REPOSITORY https://github.com/edenhill/librdkafka.git
+    GIT_TAG v0.9.5
     INSTALL_COMMAND ""
     CMAKE_ARGS -DRDKAFKA_BUILD_EXAMPLES=OFF -DRDKAFKA_BUILD_TESTS=OFF)
 
