@@ -12,3 +12,4 @@
 	url = https://github.com/h2o/cache-digest.js.git
 [submodule "deps/mruby-uri-parser"]
 	path = deps/mruby-uri-parser
+        url = https://github.com/Asmod4n/mruby-uri-parser.git
