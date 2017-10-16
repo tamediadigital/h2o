@@ -69,8 +69,8 @@ static void on_gc_dispose_redis(mrb_state *mrb, void *_conn)
     struct st_h2o_mruby_redis_conn_t *conn = _conn;
     if (conn == NULL) return;
 
-    h2o_redis_free(&conn->super);
     conn->refs.redis = mrb_nil_value();
+    h2o_redis_free(&conn->super);
 }
 
 static void on_gc_dispose_command(mrb_state *mrb, void *_ctx)
@@ -83,9 +83,30 @@ static void on_gc_dispose_command(mrb_state *mrb, void *_ctx)
     free(ctx);
 }
 
+static struct RClass *get_error_class(mrb_state *mrb, const char *name)
+{
+    h2o_mruby_shared_context_t *shared = mrb->ud;
+    mrb_value h2o = mrb_ary_entry(shared->constants, H2O_MRUBY_H2O_MODULE);
+    struct RClass *redis_klass = mrb_class_get_under(mrb, (struct RClass *)mrb_obj_ptr(h2o), "Redis");
+    struct RClass *error_klass = mrb_class_get_under(mrb, redis_klass, name);
+    return error_klass;
+}
+
+static void pass_reply(struct st_h2o_mruby_redis_command_context_t *ctx, mrb_value reply)
+{
+    mrb_state *mrb = ctx->conn->ctx->shared->mrb;
+    if (mrb_nil_p(ctx->receiver)) {
+        mrb_funcall(mrb, ctx->refs.command, "_on_reply", 1, reply);
+        h2o_mruby_assert(mrb);
+    } else {
+        int gc_arena = mrb_gc_arena_save(mrb);
+        h2o_mruby_run_fiber(ctx->conn->ctx, detach_receiver(ctx, 1), reply, NULL);
+        mrb_gc_arena_restore(mrb, gc_arena);
+    }
+}
+
 const static struct mrb_data_type redis_type = {"redis", on_gc_dispose_redis};
 const static struct mrb_data_type command_type = {"redis_command", on_gc_dispose_command};
-
 
 static mrb_value setup_method(mrb_state *mrb, mrb_value self)
 {
@@ -94,6 +115,18 @@ static mrb_value setup_method(mrb_state *mrb, mrb_value self)
 
     struct st_h2o_mruby_redis_conn_t *conn = (struct st_h2o_mruby_redis_conn_t *)h2o_redis_create_connection(shared->ctx->loop, sizeof(*conn));
     conn->ctx = shared->current_context;
+
+    mrb_value _connect_timeout = mrb_iv_get(mrb, self, mrb_intern_lit(mrb, "@connect_timeout"));
+    if (! mrb_nil_p(_connect_timeout)) {
+        uint64_t connect_timeout = mrb_float(_connect_timeout) * 1000;
+        conn->super.connect_timeout = connect_timeout;
+    }
+
+    mrb_value _command_timeout = mrb_iv_get(mrb, self, mrb_intern_lit(mrb, "@command_timeout"));
+    if (! mrb_nil_p(_command_timeout)) {
+        uint64_t command_timeout = mrb_float(_command_timeout) * 1000;
+        conn->super.command_timeout = command_timeout;
+    }
 
     DATA_TYPE(self) = &redis_type;
     DATA_PTR(self) = conn;
@@ -107,9 +140,8 @@ static mrb_value connect_method(mrb_state *mrb, mrb_value self)
     if (conn->super.state != H2O_REDIS_CONNECTION_STATE_CLOSED)
         return self;
 
-    mrb_value config = mrb_iv_get(mrb, self, mrb_intern_lit(mrb, "@config"));
-    mrb_value _host = mrb_hash_get(mrb, config, mrb_symbol_value(mrb_intern_lit(mrb, "host")));
-    mrb_value _port = mrb_hash_get(mrb, config, mrb_symbol_value(mrb_intern_lit(mrb, "port")));
+    mrb_value _host = mrb_iv_get(mrb, self, mrb_intern_lit(mrb, "@host"));
+    mrb_value _port = mrb_iv_get(mrb, self, mrb_intern_lit(mrb, "@port"));
     const char *host = mrb_string_value_cstr(mrb, &_host);
     uint16_t port = mrb_fixnum(_port);
 
@@ -129,15 +161,6 @@ static mrb_value disconnect_method(mrb_state *mrb, mrb_value self)
     struct st_h2o_mruby_redis_conn_t *conn = DATA_PTR(self);
     h2o_redis_disconnect(&conn->super);
     return self;
-}
-
-static struct RClass *get_error_class(mrb_state *mrb, const char *name)
-{
-    h2o_mruby_shared_context_t *shared = mrb->ud;
-    mrb_value h2o = mrb_ary_entry(shared->constants, H2O_MRUBY_H2O_MODULE);
-    struct RClass *redis_klass = mrb_class_get_under(mrb, (struct RClass *)mrb_obj_ptr(h2o), "Redis");
-    struct RClass *error_klass = mrb_class_get_under(mrb, redis_klass, name);
-    return error_klass;
 }
 
 /*
@@ -187,7 +210,7 @@ static void on_redis_command(redisReply *_reply, void *_ctx, int err, const char
         if (_reply == NULL) return;
         reply = decode_redis_reply(mrb, _reply, ctx->refs.command);
     } else {
-        struct RClass *error_klass;
+        struct RClass *error_klass = NULL;
         switch(err) {
         case H2O_REDIS_ERROR_CONNECTION:
             error_klass = get_error_class(mrb, "ConnectionError");
@@ -198,23 +221,19 @@ static void on_redis_command(redisReply *_reply, void *_ctx, int err, const char
         case H2O_REDIS_ERROR_UNKNOWN:
             error_klass = get_error_class(mrb, "UnknownError");
             break;
+        case H2O_REDIS_ERROR_CONNECT_TIMEOUT:
+            error_klass = get_error_class(mrb, "ConnectTimeoutError");
+            break;
+        case H2O_REDIS_ERROR_COMMAND_TIMEOUT:
+            error_klass = get_error_class(mrb, "CommandTimeoutError");
+            break;
         default:
             assert(!"FIXME");
         }
         reply = mrb_exc_new(mrb, error_klass, errstr, strlen(errstr));
     }
 
-    if (mrb_nil_p(ctx->receiver)) {
-        mrb_value fiber_runner = mrb_funcall(mrb, ctx->refs.command, "_on_reply", 1, reply);
-        h2o_mruby_assert(mrb);
-        if (! mrb_nil_p(fiber_runner))
-            h2o_mruby_run_fiber(ctx->conn->ctx, fiber_runner, mrb_nil_value(), NULL);
-    } else {
-        int gc_arena = mrb_gc_arena_save(mrb);
-        h2o_mruby_run_fiber(ctx->conn->ctx, detach_receiver(ctx, 1), reply, NULL);
-        mrb_gc_arena_restore(mrb, gc_arena);
-    }
-
+    pass_reply(ctx, reply);
     mrb_gc_unregister(mrb, ctx->refs.command);
 }
 
