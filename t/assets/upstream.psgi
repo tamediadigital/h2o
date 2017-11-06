@@ -120,9 +120,23 @@ builder {
             200,
             [
                 'x-server' => $env->{"SERVER_PORT"},
+                'req-connection' => $env->{"HTTP_CONNECTION"} || '',
             ],
             [$env->{"SERVER_PORT"}],
         ];
+    };
+    mount "/echo-remote-port" => sub {
+        my $env = shift;
+        return [
+            200,
+            [
+            ],
+            [$env->{"REMOTE_PORT"} || ''],
+        ];
+    };
+    mount "/sni-name" => sub {
+        my $env = shift;
+        [200, [], [$env->{"psgix.io"}->get_servername]];
     };
     mount "/streaming-body" => sub {
         my $env = shift;
