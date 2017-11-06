@@ -13,3 +13,6 @@
 [submodule "misc/h2get"]
 	path = misc/h2get
 	url = https://github.com/deweerdt/h2get.git
+[submodule "deps/mruby-r3"]
+	path = deps/mruby-r3
+	url = https://github.com/katzer/mruby-r3.git
