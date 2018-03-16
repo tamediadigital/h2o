@@ -202,10 +202,11 @@ IF (WITH_RDKAFKA)
     include(ExternalProject)
     ExternalProject_Add(librdkafka-git
     GIT_REPOSITORY https://github.com/edenhill/librdkafka.git
-    GIT_TAG v0.11.1
+    #GIT_TAG v0.11.4
     INSTALL_COMMAND ""
-    CMAKE_ARGS -DRDKAFKA_BUILD_EXAMPLES=OFF -DRDKAFKA_BUILD_TESTS=OFF)
-    SET(RDKAFKA_LIB ${BINARY_DIR}/librdkafka-git-prefix/src/librdkafka-git-build/src/librdkafka.a)
+    CMAKE_ARGS -DRDKAFKA_BUILD_EXAMPLES=OFF -DRDKAFKA_BUILD_TESTS=OFF -DRDKAFKA_BUILD_STATIC:BOOL=ON 
+    )
+#    SET(RDKAFKA_LIB ${BINARY_DIR}/librdkafka-git-prefix/src/librdkafka-git-build/src/librdkafka++.a)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_RDKAFKA=1")
 ENDIF (WITH_RDKAFKA)
 
