@@ -566,6 +566,7 @@ IF (WITH_MRUBY)
         lib/handler/mruby/sleep.c
         lib/handler/mruby/middleware.c
         lib/handler/mruby/channel.c
+        lib/handler/mruby/socket.c
         lib/handler/configurator/mruby.c)
     SET(STANDALONE_COMPILE_FLAGS "${STANDALONE_COMPILE_FLAGS} -DH2O_USE_MRUBY=1")
 ENDIF (WITH_MRUBY)
