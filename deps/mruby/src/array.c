@@ -114,7 +114,7 @@ static void
 ary_modify_check(mrb_state *mrb, struct RArray *a)
 {
   if (MRB_FROZEN_P(a)) {
-    mrb_raise(mrb, E_RUNTIME_ERROR, "can't modify frozen array");
+    mrb_raise(mrb, E_FROZEN_ERROR, "can't modify frozen array");
   }
 }
 
@@ -256,7 +256,6 @@ mrb_ary_resize(mrb_state *mrb, mrb_value ary, mrb_int new_len)
   ary_modify(mrb, a);
   old_len = RARRAY_LEN(ary);
   if (old_len != new_len) {
-    ARY_SET_LEN(a, new_len);
     if (new_len < old_len) {
       ary_shrink_capa(mrb, a);
     }
@@ -264,6 +263,7 @@ mrb_ary_resize(mrb_state *mrb, mrb_value ary, mrb_int new_len)
       ary_expand_capa(mrb, a, new_len);
       ary_fill_with_nil(ARY_PTR(a) + old_len, new_len - old_len);
     }
+    ARY_SET_LEN(a, new_len);
   }
 
   return ary;
@@ -767,9 +767,11 @@ aget_index(mrb_state *mrb, mrb_value index)
   if (mrb_fixnum_p(index)) {
     return mrb_fixnum(index);
   }
+#ifndef MRB_WITHOUT_FLOAT
   else if (mrb_float_p(index)) {
     return (mrb_int)mrb_float(index);
   }
+#endif
   else {
     mrb_int i, argc;
     mrb_value *argv;
@@ -939,7 +941,7 @@ mrb_ary_first(mrb_state *mrb, mrb_value self)
   struct RArray *a = mrb_ary_ptr(self);
   mrb_int size, alen = ARY_LEN(a);
 
-  if (mrb->c->ci->argc == 0) {
+  if (mrb_get_argc(mrb) == 0) {
     return (alen > 0)? ARY_PTR(a)[0]: mrb_nil_value();
   }
   mrb_get_args(mrb, "|i", &size);
