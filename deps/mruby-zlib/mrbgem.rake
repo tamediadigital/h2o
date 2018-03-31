@@ -1,7 +1,9 @@
-MRuby::Gem::Specification.new('mruby-zlib') do |spec|
-  spec.license = 'MIT'
-  spec.authors = 'Internet Initiative Japan'
+MRUBY_ZLIB_GEM_DIR = File.dirname(__FILE__)
 
-  spec.cc.include_paths << "#{build.root}/src"
+MRuby::Gem::Specification.new('mruby-zlib') do |spec|
+  spec.author = 'Jared Breeden'
+  spec.license = 'MIT'
+  spec.summary = 'Bindings for ZLib'
+
   spec.linker.libraries << 'z'
 end
